@@ -3,17 +3,26 @@ from termcolor import colored
 from tqdm import tqdm
 import os
 import tarfile
+import zipfile
 import wget
+import torch
+import numpy as np
+from torchvision.transforms import v2
 
 # PyTorch & Pytorch Lightning
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
-
+from torch.utils.data import default_collate
 # Custom packages
 import src.config as cfg
 
+cutmix = v2.CutMix(num_classes=200)
+mixup = v2.MixUp(num_classes=200)
+cutmix_or_mixup = v2.RandomChoice([cutmix, mixup])
+def collate_fn(batch):
+    return mixup(*default_collate(batch))
 
 class TinyImageNetDatasetModule(LightningDataModule):
     __DATASET_NAME__ = 'tiny-imagenet-200'
@@ -22,21 +31,35 @@ class TinyImageNetDatasetModule(LightningDataModule):
         super().__init__()
         self.batch_size = batch_size
 
+    # def prepare_data(self):
+    #     '''called only once and on 1 GPU'''
+    #     if not os.path.exists(os.path.join(cfg.DATASET_ROOT_PATH, self.__DATASET_NAME__)):
+    #         # download data
+    #         print(colored("\nDownloading dataset...", color='green', attrs=('bold',)))
+    #         filename = self.__DATASET_NAME__ + '.tar'
+    #         # wget.download(f'https://hyu-aue8088.s3.ap-northeast-2.amazonaws.com/{filename}')
+
+    #         # extract data
+    #         print(colored("\nExtract dataset...", color='green', attrs=('bold',)))
+    #         with tarfile.open(name=filename) as tar:
+    #             # Go over each member
+    #             for member in tqdm(iterable=tar.getmembers(), total=len(tar.getmembers())):
+    #                 # Extract member
+    #                 tar.extract(path=cfg.DATASET_ROOT_PATH, member=member)
+    #         os.remove(filename)
+
     def prepare_data(self):
         '''called only once and on 1 GPU'''
         if not os.path.exists(os.path.join(cfg.DATASET_ROOT_PATH, self.__DATASET_NAME__)):
             # download data
             print(colored("\nDownloading dataset...", color='green', attrs=('bold',)))
-            filename = self.__DATASET_NAME__ + '.tar'
-            wget.download(f'https://hyu-aue8088.s3.ap-northeast-2.amazonaws.com/{filename}')
+            filename = self.__DATASET_NAME__ + '.zip'
+            wget.download(f'http://cs231n.stanford.edu/{filename}')
 
             # extract data
             print(colored("\nExtract dataset...", color='green', attrs=('bold',)))
-            with tarfile.open(name=filename) as tar:
-                # Go over each member
-                for member in tqdm(iterable=tar.getmembers(), total=len(tar.getmembers())):
-                    # Extract member
-                    tar.extract(path=cfg.DATASET_ROOT_PATH, member=member)
+            with zipfile.ZipFile(filename, 'r') as zip_ref:
+                zip_ref.extractall(path=cfg.DATASET_ROOT_PATH)
             os.remove(filename)
 
     def train_dataloader(self):
@@ -58,6 +81,15 @@ class TinyImageNetDatasetModule(LightningDataModule):
             num_workers=cfg.NUM_WORKERS,
             batch_size=self.batch_size,
         )
+
+        # return DataLoader(
+        #             dataset,
+        #             batch_size=self.batch_size,
+        #             shuffle=True,
+        #             pin_memory=True,
+        #             num_workers=cfg.NUM_WORKERS,
+        #             collate_fn=collate_fn  # CutMix 적용
+        #         )
 
     def val_dataloader(self):
         tf_val = transforms.Compose([
